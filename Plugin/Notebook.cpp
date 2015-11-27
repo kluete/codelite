@@ -182,6 +182,8 @@ void clTabInfo::Draw(wxDC& dc, const clTabInfo::Colours& colours, size_t style)
     wxFont font = wxSystemSettings::GetFont(wxSYS_DEFAULT_GUI_FONT);
     dc.SetTextForeground(IsActive() ? colours.activeTabTextColour : colours.inactiveTabTextColour);
     dc.SetFont(font);
+    
+    const bool  draw_close_butt_f = (style & kNotebook_CloseButtonOnActiveTab);// && IsActive();
 
     if(style & kNotebook_BottomTabs) {
         // Bottom tabs
@@ -327,7 +329,7 @@ void clTabInfo::Draw(wxDC& dc, const clTabInfo::Colours& colours, size_t style)
         }
 
         tmpDC.DrawText(m_label, m_textY, m_textX);
-        if(IsActive() && (style & kNotebook_CloseButtonOnActiveTab)) {
+        if(draw_close_butt_f) {
             tmpDC.DrawBitmap(colours.closeButton, m_bmpCloseY, m_bmpCloseX);
         }
         tmpDC.SelectObject(wxNullBitmap);
@@ -393,7 +395,7 @@ void clTabInfo::Draw(wxDC& dc, const clTabInfo::Colours& colours, size_t style)
             dc.DrawBitmap(m_bitmap, m_bmpX + m_rect.GetX(), m_bmpY);
         }
         dc.DrawText(m_label, m_textX + m_rect.GetX(), m_textY);
-        if(IsActive() && (style & kNotebook_CloseButtonOnActiveTab)) {
+        if(draw_close_butt_f) {
             dc.DrawBitmap(colours.closeButton, m_bmpCloseX + m_rect.GetX(), m_bmpCloseY);
         }
     }
@@ -608,15 +610,15 @@ bool clTabCtrl::IsActiveTabVisible(const clTabInfo::Vec_t& tabs) const
 {
     wxRect clientRect(GetClientRect());
     if((GetStyle() & kNotebook_ShowFileListButton) && !IsVerticalTabs()) {
-        clientRect.SetWidth(clientRect.GetWidth() - 30);
+        
     } else if((GetStyle() & kNotebook_ShowFileListButton) && IsVerticalTabs()) {
         // Vertical tabs
-        clientRect.SetHeight(clientRect.GetHeight() - 30);
+        clientRect.Inflate(1, 1);
     }
 
     for(size_t i = 0; i < tabs.size(); ++i) {
         clTabInfo::Ptr_t t = tabs.at(i);
-        if(t->IsActive() && clientRect.Intersects(t->GetRect())) return true;
+        if(t->IsActive() && clientRect.Contains(t->GetRect())) return true;
     }
     return false;
 }
@@ -831,8 +833,17 @@ void clTabCtrl::DoUpdateCoordiantes(clTabInfo::Vec_t& tabs)
 
 void clTabCtrl::UpdateVisibleTabs()
 {
+    // force list update if there's a gap that could be refilled
+    const wxRect client_rc(GetClientRect());
+    const wxRect vis_rc = m_visibleTabs.empty() ? wxRect{} : m_visibleTabs.back()->GetRect();
+    
+    const bool  vacancy = (client_rc.GetRight() > vis_rc.GetRight());
+    const bool  refillable = (m_tabs.size() > m_visibleTabs.size());
+    
+    const bool  force_f = vacancy && refillable;
+
     // don't update the list if we don't need to
-    if(!IsVerticalTabs()) {
+    if(!force_f && !IsVerticalTabs()) {
         if(IsActiveTabInList(m_visibleTabs) && IsActiveTabVisible(m_visibleTabs)) return;
     }
 
@@ -865,26 +876,28 @@ void clTabCtrl::OnLeftDown(wxMouseEvent& event)
     int tabHit, realPos;
     TestPoint(event.GetPosition(), realPos, tabHit);
     if(tabHit == wxNOT_FOUND) return;
+    
+    const clTabInfo::Ptr_t  t = m_visibleTabs.at(tabHit);
+    const wxRect            xRect(t->GetRect().x + t->GetBmpCloseX(), t->GetRect().y + t->GetBmpCloseY(), 16, 16);
+    const bool              close_butt_f = xRect.Contains(event.GetPosition());
 
     // Did we hit the active tab?
-    bool clickWasOnActiveTab = (GetSelection() == realPos);
+    const bool clickWasOnActiveTab = (GetSelection() == realPos);
+
+    // If we clicked on the active and we have a close button - handle it here
+    if((GetStyle() & kNotebook_CloseButtonOnActiveTab) /*&& clickWasOnActiveTab*/) {
+        // we clicked on the selected index
+        if(close_butt_f) {
+            m_closeButtonClickedIndex = tabHit;
+            return;
+        }
+    }
 
     // If the click was not on the active tab, set the clicked
     // tab as the new selection and leave this function
     if(!clickWasOnActiveTab) {
         SetSelection(realPos);
         return;
-    }
-
-    // If we clicked on the active and we have a close button - handle it here
-    if((GetStyle() & kNotebook_CloseButtonOnActiveTab) && clickWasOnActiveTab) {
-        // we clicked on the selected index
-        clTabInfo::Ptr_t t = m_visibleTabs.at(tabHit);
-        wxRect xRect(t->GetRect().x + t->GetBmpCloseX(), t->GetRect().y + t->GetBmpCloseY(), 16, 16);
-        if(xRect.Contains(event.GetPosition())) {
-            m_closeButtonClickedIndex = tabHit;
-            return;
-        }
     }
 
     // We clicked on the active tab, start DnD operation
@@ -1057,28 +1070,31 @@ void clTabCtrl::OnLeftUp(wxMouseEvent& event)
     if((GetStyle() & kNotebook_ShowFileListButton) && m_chevronRect.Contains(event.GetPosition())) {
         // Show the drop down list
         CallAfter(&clTabCtrl::DoShowTabList);
+        return;
+    }
+    
+    int tabHit, realPos;
+    TestPoint(event.GetPosition(), realPos, tabHit);
+    if(tabHit == wxNOT_FOUND)   return;
+    
+    const clTabInfo::Ptr_t t = m_visibleTabs.at(tabHit);
+    wxRect xRect(t->GetRect().x + t->GetBmpCloseX(), t->GetRect().y + t->GetBmpCloseY(), 16, 16);
+    xRect.Inflate(2); // don't be picky if we did not click exactly on the 16x16 bitmap...
 
-    } else {
-        int tabHit, realPos;
-        TestPoint(event.GetPosition(), realPos, tabHit);
-        if(tabHit != wxNOT_FOUND) {
-            if((GetStyle() & kNotebook_CloseButtonOnActiveTab) && m_visibleTabs.at(tabHit)->IsActive()) {
-                // we clicked on the selected index
-                clTabInfo::Ptr_t t = m_visibleTabs.at(tabHit);
-                wxRect xRect(t->GetRect().x + t->GetBmpCloseX(), t->GetRect().y + t->GetBmpCloseY(), 16, 16);
-                xRect.Inflate(2); // don't be picky if we did not click exactly on the 16x16 bitmap...
-
-                if(m_closeButtonClickedIndex == tabHit && xRect.Contains(event.GetPosition())) {
-                    if(GetStyle() & kNotebook_CloseButtonOnActiveTabFireEvent) {
-                        // let the user process this
-                        wxBookCtrlEvent event(wxEVT_BOOK_PAGE_CLOSE_BUTTON);
-                        event.SetEventObject(GetParent());
-                        event.SetSelection(realPos);
-                        GetParent()->GetEventHandler()->AddPendingEvent(event);
-                    } else {
-                        CallAfter(&clTabCtrl::DoDeletePage, realPos);
-                    }
-                }
+    const bool  close_butt_f = (m_closeButtonClickedIndex == tabHit && xRect.Contains(event.GetPosition()));
+    
+    if((GetStyle() & kNotebook_CloseButtonOnActiveTab) /*&& m_visibleTabs.at(tabHit)->IsActive()*/) {
+        // we clicked on the selected index
+        
+        if(close_butt_f) {
+            if(GetStyle() & kNotebook_CloseButtonOnActiveTabFireEvent) {
+                // let the user process this
+                wxBookCtrlEvent event(wxEVT_BOOK_PAGE_CLOSE_BUTTON);
+                event.SetEventObject(GetParent());
+                event.SetSelection(realPos);
+                GetParent()->GetEventHandler()->AddPendingEvent(event);
+            } else {
+                CallAfter(&clTabCtrl::DoDeletePage, realPos);
             }
         }
     }

@@ -614,7 +614,7 @@ void LEditor::SetProperties()
 
     // Right margin
     SetEdgeMode(options->GetEdgeMode());
-    SetEdgeColumn(options->GetEdgeColumn());
+    SetEdgeColumn(options->GetEdgeColumn() - 1);
     SetEdgeColour(options->GetEdgeColour());
 
     //---------------------------------------------------
@@ -1190,7 +1190,7 @@ void LEditor::OnSciUpdateUI(wxStyledTextEvent& event)
     // update line number
     wxString message;
 
-    message << wxT("Ln ") << curLine + 1 << wxT(", Col ") << GetColumn(mainSelectionPos) << ", Pos "
+    message << wxT("Ln ") << curLine + 1 << wxT(", Col ") << GetColumn(mainSelectionPos) + 1 << ", Pos "
             << mainSelectionPos;
 
     // Always update the status bar with event, calling it directly causes performance degredation
