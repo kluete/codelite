@@ -28,6 +28,7 @@ if (WITH_LLDB MATCHES 1)
         FIND_LLDB_OFFICIAL()
         if ( LIBLLDB STREQUAL "LIBLLDB-NOTFOUND" )
         ## could not locate an official package, try a custom build
+            message(" LLDB warning: could not locate an official package, try a custom build")
             find_library(LIBEDIT_LIB NAMES libedit.so HINTS /usr/local/lib /usr/lib ${CMAKE_INSTALL_LIBDIR}) # Our liblldb.so depends on libedit.so
             if(LLDB_OFFICIAL_FOUND MATCHES 0)
                 set ( BUILD_LLDB 0 )
